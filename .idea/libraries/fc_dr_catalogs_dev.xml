@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="fc-dr-catalogs-dev">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/target/fc-dr-catalogs-dev.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

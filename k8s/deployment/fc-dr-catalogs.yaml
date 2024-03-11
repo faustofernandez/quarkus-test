@@ -1,0 +1,29 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: fc-dr-catalogs
+spec:
+  selector:
+    matchLabels:
+      app: fc-dr-catalogs
+  replicas: 1
+  template:
+    metadata:
+      name: backend
+      labels:
+        app: fc-dr-catalogs
+        role: backend
+        env: production
+    spec:
+      containers:
+      - name: fc-dr-catalogs
+        image: gcr.io/hubio-production/fc-dr-catalogs:1.0.0
+        resources:
+          limits:
+            memory: "512Mi"
+          requests:
+            memory: "256Mi"
+        imagePullPolicy: Always
+        ports:
+        - name: catalogs
+          containerPort: 8301

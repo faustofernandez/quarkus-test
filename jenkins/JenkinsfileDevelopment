@@ -1,0 +1,110 @@
+node {
+   def mvnHome
+   def projectName = 'fc-dr-catalogs'
+   def gitUrl='git@github.com:healthprozone-code/fc-dr-catalogs.git'
+   def previousVersion = '1.0.0'
+   def version = '1.0.0'
+   def branch='development'
+   def projectId='possible-haven-246322'
+   def dockerFile='DockerfileDevelopment';
+   def cluster='gke_possible-haven-246322_us-central1-c_development-env-cluster'
+   def environment='development'
+   def swaggerUrl= 'https://35.225.67.18:9090/swagger-ui.html'
+   def credHelper = 'us-central1-docker.pkg.dev'
+   def repName = 'future-care-rep'
+
+   stage('Preparation: getting code from github') { // for display purposes
+      // Get some code from a GitHub repository
+      git branch: branch,
+          credentialsId: '88f3386b-886d-43fc-8390-2ceda5a31e0f',
+          url: gitUrl
+      // Get the Maven tool.
+      // ** NOTE: This 'M3' Maven tool must be configured
+      // **       in the global configuration.
+      mvnHome = tool 'maven-3.6.1'
+   }
+   stage('Build: mvn clean package') {
+         // Run the maven build
+         withEnv(["MVN_HOME=$mvnHome"]) {
+            if (isUnix()) {
+               sh 'export JAVA_HOME=/usr/java/jdk-17.0.9'
+               sh '"/opt/apache-maven-3.9.4/bin/mvn" clean package -Dmaven.test.skip'
+            } else {
+               echo "pipeline is just supported for linux environment"
+            }
+         }
+      }
+
+   // stage('Unit Test Results') {
+   //    junit '**/target/surefire-reports/TEST-*.xml'
+   //    archiveArtifacts 'target/*.jar'
+   // }
+
+   /*stage('Analysis with SonarQube') {
+   *     def scannerLoc = tool 'sonar-scanner';
+   *     withSonarQubeEnv('sonarqube') {
+   *         sh "${scannerLoc}/bin/sonar-scanner"
+   *     }
+   * }*/
+
+   stage('Build image') {
+        /* This builds the actual image; synonymous to
+         * docker build on the command line */
+
+       	def existImage = sh(script: "sudo docker images -q ${projectName}", returnStdout: true).trim()
+       	if(existImage!=""){
+        	sh "sudo docker rmi ${projectName}"
+        }
+        
+        def existPreviousTag = sh(script: "sudo docker images -q ${credHelper}/${projectId}/${repName}/${projectName}:${previousVersion}", returnStdout: true).trim()
+       	if(existPreviousTag!=""){
+       		sh "sudo docker rmi ${credHelper}/${projectId}/${repName}/${projectName}:${previousVersion}"
+       	}
+        
+
+        def existTag = sh(script: "sudo docker images -q ${credHelper}/${projectId}/${repName}/${projectName}:${version}", returnStdout: true).trim()
+       	if(existTag!=""){
+       		sh "sudo docker rmi ${credHelper}/${projectId}/${repName}/${projectName}:${version}"
+       	}
+
+        sh "sudo docker build -t ${projectName} -f ./docker/${dockerFile} ."
+        sh "sudo docker tag ${projectName} ${credHelper}/${projectId}/${repName}/${projectName}:${version}"
+
+    }
+
+   stage("uploading image to ${credHelper} . . ") {
+   		def existContainer = sh(script: "gcloud container images list-tags ${credHelper}/${projectId}/${repName}/${projectName} --filter=\"tags:${version}\" --format=json", returnStdout: true).trim()
+        if(existContainer!="[]"){
+        	sh "sudo gcloud container images delete ${credHelper}/${projectId}/${repName}/${projectName}:${version} --quiet"
+        }
+
+        sh "sudo docker push ${credHelper}/${projectId}/${repName}/${projectName}:${version}"
+    }
+
+    stage('updating ${projectName} API') {
+     def existK8Service = sh(script: "kubectl get services --field-selector metadata.name=${projectName} -o jsonpath='{.items[*]}' -n hubio ", returnStdout: true).trim()
+          if(existK8Service==""){
+             sh "kubectl apply -f k8s/service/${projectName}-${environment}.yaml -n hubio --cluster ${cluster} "
+          }
+
+          //deleting artifacts deployment and if it exists
+          try {
+           sh "kubectl delete deployment.apps/${projectName} -n hubio --cluster ${cluster} "
+           } catch(Exception e) {
+            println("Deployment not found");
+          }
+          sh "kubectl apply -f k8s/deployment/${projectName}-${environment}.yaml -n hubio --cluster ${cluster} "
+     }
+
+    stage ('Notify') {
+
+        slackSend channel: 'jenkins2',
+        color: 'good',
+        message: "Build ${env.BUILD_NUMBER} completed for ${env.JOB_NAME}. Details: (<{swaggerUrl} | ${projectName}_{environment} >),Notes:Se ha realizado una actualizacion al API de ${projectName} (/${projectName}) en ambiente de Desarrollo correctamente",
+        teamDomain: 'hubioespacio',
+        tokenCredentialId: '489f0259-b704-4b03-9800-eb838e596b51'
+
+    }
+
+ 
+}

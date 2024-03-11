@@ -1,0 +1,4 @@
+META-INF/panache-archive.marker
+org/acme/CountryControllerTest.class
+org/acme/GreetingResourceIT.class
+org/acme/GreetingResourceTest.class

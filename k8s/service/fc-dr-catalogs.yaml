@@ -1,0 +1,14 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: fc-dr-catalogs
+spec:
+  type: ClusterIP
+  ports:
+  - name: https
+    port: 8301
+    targetPort: 8301
+    protocol: TCP
+  selector:
+    role: backend
+    app: fc-dr-catalogs

@@ -1,0 +1,91 @@
+node {
+   def mvnHome
+   def projectName = 'fc-dr-catalogs'
+   def gitUrl='git@github.com:healthprozone-code/fc-dr-catalogs.git'
+   def previousVersion = '1.0.0'
+   def version = '1.0.0'
+   def branch='master'
+   def gcrPath='hubio-production'
+   def projectId='hubio-production'
+   def dockerFile='Dockerfile'
+   def environment='production'
+   def swaggerUrl= 'https://34.71.164.198:9090/swagger-ui.html'
+   def credHelper = 'us-central1-docker.pkg.dev'
+   def repName = 'future-care-rep'
+
+   stage('Preparation: getting code from github') { // for display purposes
+      // Get some code from a GitHub repository
+      git branch: branch,
+          credentialsId: 'github-hubio-master',
+          url: gitUrl
+      // Get the Maven tool.
+      // ** NOTE: This 'M3' Maven tool must be configured
+      // **       in the global configuration.
+      mvnHome = tool 'maven-3.6.3'
+   }
+   stage('Build: mvn clean package') {
+      // Run the maven build
+      withEnv(["MVN_HOME=$mvnHome"]) {
+         if (isUnix()) {
+            sh '"$MVN_HOME/bin/mvn" clean package'
+         } else {
+            echo "pipeline is just supported for linux environment"
+         }
+      }
+   }
+
+   stage('Unit Test Results') {
+      junit '**/target/surefire-reports/TEST-*.xml'
+      archiveArtifacts 'target/*.jar'
+   }
+
+   stage('Analysis with SonarQube') {
+        def scannerLoc = tool 'sonar-scanner';
+        withSonarQubeEnv('sonarqube') {
+            sh "${scannerLoc}/bin/sonar-scanner"
+        }
+    }
+
+   stage('Build image') {
+        /* This builds the actual image; synonymous to
+         * docker build on the command line */
+
+       	def existImage = sh(script: "sudo docker images -q ${projectName}", returnStdout: true).trim()
+       	if(existImage!=""){
+        	sh "sudo docker rmi ${projectName}"
+        }
+
+        def existTag = sh(script: "sudo docker images -q gcr.io/${gcrPath}/${projectName}:${previousVersion}", returnStdout: true).trim()
+       	if(existTag!=""){
+       		sh "sudo docker rmi gcr.io/${gcrPath}/${projectName}:${previousVersion}"
+       	}
+
+        sh "sudo docker build -t ${projectName} -f ./docker/${dockerFile} ."
+        sh "sudo docker tag ${projectName} gcr.io/${gcrPath}/${projectName}:${version}"
+
+    }
+
+   stage('uploading image to gcr.io . . ') {
+        sh "sudo docker push gcr.io/${gcrPath}/${projectName}:${version}"
+    }
+
+    stage('updating Dynamic Section API') {
+         //deleting artifacts deployment and service
+         //sh "kubectl delete deployment.apps/${projectName} -n hubio-${environment} "
+         //sh "kubectl delete service ${projectName} -n hubio-${environment} "
+
+         sh "kubectl apply -f k8s/deployment/${projectName}.yaml -n hubio-${environment} "
+         // ** NOTE: It is discouraged in case of making the first deployment of the api.
+    	 sh "kubectl apply -f k8s/service/${projectName}.yaml -n hubio-${environment} "
+    }
+
+    stage ('Notify') {
+
+        slackSend channel: 'jenkins2_production',
+        color: 'good',
+        message: "Build ${env.BUILD_NUMBER} completed for ${env.JOB_NAME}. Details: (<${swaggerUrl}?urls.primaryName=emr-service | ${projectName} >),Notes:Se ha realizado una actualizacion al API de ${projectName} (/${projectName}) en ambiente de PRODUCTION correctamente",
+        teamDomain: 'hubioespacio',
+        tokenCredentialId: 'c8883f5d-f161-4a4f-858e-1953e37bd87e'
+
+    }
+}
