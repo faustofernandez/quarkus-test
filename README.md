@@ -1,4 +1,4 @@
-# fc-dr-catalogs
+# quarkus-test
 
 This project uses Quarkus, the Supersonic Subatomic Java Framework.
 
